@@ -189,13 +189,13 @@ class FashionCLIP:
         dataset.set_transform(transform_fn)
         dataloader = DataLoader(dataset, batch_size=batch_size)
         image_embeddings = []
-        pbar = tqdm(total=len(images) // batch_size, position=0)
+        #pbar = tqdm(total=len(images) // batch_size, position=0)
         with torch.no_grad():
             for batch in dataloader:
                 batch = {k:v.to(self.device) for k,v in batch.items()}
                 image_embeddings.extend(self.model.get_image_features(**batch).detach().cpu().numpy())
-                pbar.update(1)
-            pbar.close()
+                #pbar.update(1)
+            #pbar.close()
         return np.stack(image_embeddings)
 
     def encode_text(self, text: List[str], batch_size: int):
