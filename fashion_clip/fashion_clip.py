@@ -17,6 +17,7 @@ import json
 import validators
 from transformers import CLIPModel, CLIPProcessor
 from datasets import Dataset, Image
+import time
 
 _MODELS = {
     "fashion-clip": "patrickjohncyh/fashion-clip",
@@ -179,21 +180,32 @@ class FashionCLIP:
         def transform_fn(el):
              imgs = el['image'] if isinstance(el['image'][0], PIL.Image.Image) else [Image().decode_example(_) for _ in el['image']] 
              return self.preprocess(images=imgs, return_tensors='pt')
-            
+        
+        
+        start = time.process_time()
         dataset = Dataset.from_dict({'image': images})
-        dataset = dataset.cast_column('image',Image(decode=False)) if isinstance(images[0], str) else dataset        
+        print(time.process_time() - start)
+        dataset = dataset.cast_column('image',Image(decode=False)) if isinstance(images[0], str) else dataset
+        print(time.process_time() - start)
         # dataset = dataset.map(map_fn,
         #             batched=True,
         #             remove_columns=['image'])
         dataset.set_format('torch')
+        print(time.process_time() - start)
         dataset.set_transform(transform_fn)
+        print(time.process_time() - start)
         dataloader = DataLoader(dataset, batch_size=batch_size)
+        print(time.process_time() - start)
         image_embeddings = []
         #pbar = tqdm(total=len(images) // batch_size, position=0)
         with torch.no_grad():
+            print(time.process_time() - start)
             for batch in dataloader:
+                print(time.process_time() - start)
                 batch = {k:v.to(self.device) for k,v in batch.items()}
+                print(time.process_time() - start)
                 image_embeddings.extend(self.model.get_image_features(**batch).detach().cpu().numpy())
+                print(time.process_time() - start)
                 #pbar.update(1)
             #pbar.close()
         return np.stack(image_embeddings)
