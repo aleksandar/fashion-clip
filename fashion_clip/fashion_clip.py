@@ -177,6 +177,13 @@ class FashionCLIP:
         return model, preprocessing, hash
 
     def encode_images(self, images: Union[List[str], List[PIL.Image.Image]], batch_size: int):
+        def transform_fn2(el):
+            if isinstance(el['image'], list):
+                imgs = el['image'] if isinstance(el['image'][0], PIL.Image.Image) else [Image().decode_example(_) for _ in el['image']] 
+            else:
+                imgs = el['image']
+
+            return self.preprocess(images=imgs, return_tensors='pt')
         def transform_fn(el):
              imgs = el['image'] if isinstance(el['image'][0], PIL.Image.Image) else [Image().decode_example(_) for _ in el['image']] 
              return self.preprocess(images=imgs, return_tensors='pt')
@@ -193,7 +200,7 @@ class FashionCLIP:
         dataset.set_format('torch')
         print(time.process_time() - start)
         #dataset.set_transform(transform_fn)
-        dataset = dataset.map(transform_fn, batched=True, batch_size=batch_size)
+        dataset = dataset.map(transform_fn2, batched=True, batch_size=batch_size)
         print(time.process_time() - start)
         dataloader = DataLoader(dataset, batch_size=batch_size)
         print(time.process_time() - start)
