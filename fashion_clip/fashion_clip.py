@@ -18,6 +18,8 @@ import validators
 from transformers import CLIPModel, CLIPProcessor
 from datasets import Dataset, Image
 import time
+from PIL import Image as PilImage
+
 
 _MODELS = {
     "fashion-clip": "patrickjohncyh/fashion-clip",
@@ -94,6 +96,8 @@ class FCLIPDataset:
         caption_hash = self._hash_list(self.captions)
         return hashlib.sha256((id_hash+images_hash+caption_hash).encode()).hexdigest()
 
+
+
 class FashionCLIP:
     """
     FashionCLIP class takes:
@@ -105,10 +109,24 @@ class FashionCLIP:
     """
 
     def __init__(self, model_name, dataset: FCLIPDataset = None, normalize=True, approx=True, auth_token=None):
+
+        def transform_fn(el):
+             imgs = el['image'] if isinstance(el['image'][0], PIL.Image.Image) else [Image().decode_example(_) for _ in el['image']] 
+             return self.preprocess(images=imgs, return_tensors='pt')
+
+
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model_name = model_name
         self.model, self.preprocess, self.model_hash = self._load_model(model_name, auth_token=auth_token)
         self.model = self.model.to(self.device)
+
+
+        #dataset2 = Dataset.from_dict({'image': []})
+        #dataset2 = dataset.cast_column('image',Image(decode=False)) if isinstance(images[0], str) else dataset2
+        #dataset2.set_format('torch')
+        #dataset2.set_transform(transform_fn)
+        #self.processing_dataset = dataset2
+
         self.dataset = dataset
         if self.dataset:
             self.dataset_hash = self.dataset.hash()
@@ -133,6 +151,11 @@ class FashionCLIP:
             self.nn_index.build(50)  # 10 trees
             print('Done!')
 
+
+        
+        
+
+
     def _generate_vectors(self, cache=True):
 
         # check if dataset + model embedding exists
@@ -144,6 +167,7 @@ class FashionCLIP:
         else:
             # generate image vectors
             image_vectors = self.encode_images(self.dataset.images_path, batch_size=32)
+            self.encode_images(self.dataset.images_path, batch_size=32)
             # generate textual vectors
             textual_vectors = self.encode_text(self.dataset.captions, batch_size=32)
         # TODO: Implement some sort of caching mechanism?
@@ -176,14 +200,42 @@ class FashionCLIP:
 
         return model, preprocessing, hash
 
-    def encode_images(self, images: Union[List[str], List[PIL.Image.Image]], batch_size: int):
-        def transform_fn2(el):
-            if isinstance(el['image'], list):
-                imgs = el['image'] if isinstance(el['image'][0], PIL.Image.Image) else [Image().decode_example(_) for _ in el['image']] 
-            else:
-                imgs = el['image']
 
-            return self.preprocess(images=imgs, return_tensors='pt')
+
+    def encode_images2(self, images: Union[List[str], List[PIL.Image.Image]], batch_size: int):
+        batches = self.load_and_transform_images(images, batch_size)
+        image_embeddings = []
+        with torch.no_grad():
+            for batch in batches:
+                batch = { 'pixel_values' : batch.to(self.device) }
+                image_features = self.model.get_image_features(**batch).detach().cpu().numpy()
+                image_embeddings.extend(image_features)
+        return np.stack(image_embeddings)
+
+
+    def load_and_transform_images(self, images, batch_size):
+        batches = []
+
+        for i in range(0, len(images), batch_size):
+            batch = images[i:i+batch_size]
+            transformed_batch = []
+
+            for img in batch:
+                if isinstance(img, PIL.Image.Image):
+                    transformed = self.preprocess(images=[img], return_tensors='pt')
+                else:
+                    img = PilImage.open(img)
+                    transformed = self.preprocess(images=[img], return_tensors='pt')
+
+                transformed_tensor = transformed['pixel_values'].reshape([3, 224, 224])
+                transformed_batch.append(transformed_tensor)
+
+            transformed_batch = torch.stack(transformed_batch)
+            batches.append(transformed_batch)
+
+        return batches
+
+    def encode_images(self, images: Union[List[str], List[PIL.Image.Image]], batch_size: int):
         def transform_fn(el):
              imgs = el['image'] if isinstance(el['image'][0], PIL.Image.Image) else [Image().decode_example(_) for _ in el['image']] 
              return self.preprocess(images=imgs, return_tensors='pt')
@@ -199,8 +251,9 @@ class FashionCLIP:
         #             remove_columns=['image'])
         dataset.set_format('torch')
         print(time.process_time() - start)
-        #dataset.set_transform(transform_fn)
-        dataset = dataset.map(transform_fn2, batched=True, batch_size=batch_size)
+        dataset.set_transform(transform_fn)
+        #print('dataset.map(transform_fn, batched=True, batch_size=batch_size)')
+        #dataset = dataset.map(transform_fn, batched=True, batch_size=batch_size)
         print(time.process_time() - start)
         dataloader = DataLoader(dataset, batch_size=batch_size)
         print(time.process_time() - start)
